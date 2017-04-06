@@ -74,12 +74,17 @@ func getFeedWordCount(url string) (string, map[string]int, error) {
 }
 
 func getItemWordCount(item *gofeed.Item) (map[string]int, error) {
-  r := strings.NewReader(item.Content)
+  log.Printf("Parsing item: %s", item.Title)
+  wc := make(map[string]int)
+  content := getItemContent(item)
+  if len(content) == 0 {
+    return wc, nil
+  }
+  r := strings.NewReader(content)
   doc, err := html.Parse(r)
   if err != nil {
     return nil, err
   }
-  wc := make(map[string]int)
   visit(wc, doc)
   return wc, nil
 }
@@ -93,4 +98,17 @@ func visit(words map[string]int, n *html.Node) {
   for c := n.FirstChild; c != nil; c = c.NextSibling {
     visit(words, c)
   }
+}
+
+func getItemContent(item *gofeed.Item) string {
+  if len(item.Content) > 0 {
+    return item.Content
+  }
+  if item.Extensions["content"]["encoded"] != nil {
+    v :=  item.Extensions["content"]["encoded"][0].Value
+    if len(v) > 0 {
+      return v
+    }
+  }
+  return item.Description
 }
