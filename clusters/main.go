@@ -29,7 +29,6 @@ func main() {
   filename := os.Args[1]
   ds, _ := ReadDataset(filename)
   clust := hcluster(ds.Data, pearson)
-  fmt.Println(len(ds.Rownames))
   printclust(clust, ds.Rownames, 0)
 }
 
