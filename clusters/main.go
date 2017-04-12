@@ -3,21 +3,24 @@ package main
 import (
   "bufio"
   "fmt"
-  "math"
+  //"math"
   "os"
   "strconv"
   "strings"
+
+  "github.com/BenLubar/memoize"
+  "github.com/montanaflynn/stats"
 )
 
 type Dataset struct {
   Rownames []string
   Colnames []string
-  Data     [][]float64
+  Data     []stats.Float64Data
 }
 
 type BiCluster struct {
   Left, Right *BiCluster
-  Vec []float64
+  Vec stats.Float64Data
   Id int
   Distance float64
 }
@@ -25,54 +28,92 @@ type BiCluster struct {
 func main() {
   filename := os.Args[1]
   ds, _ := ReadDataset(filename)
-  fmt.Println(ds)
+  clust := hcluster(ds.Data, pearson)
+  fmt.Println(len(ds.Rownames))
+  printclust(clust, ds.Rownames, 0)
 }
 
-func hcluster(rows [][]float64, distance func([]float64, []float64) float64) *BiCluster {
-
-}
-
-func pearson(v1, v2 []float64) float64 {
-  n := float64(len(v1))
-  sum1 := sum(v1)
-  sum2 := sum(v2)
-  sum1sq := sum_squares(v1)
-  sum2sq := sum_squares(v2)
-  psum := sum_products(v1, v2)
-  num := psum - (sum1*sum2)/n
-  den := math.Sqrt((sum1sq-square(sum1)/n)*((sum2sq-square(sum2))/n))
-  if den == 0 {
-    return 0.0
+func printclust(clust *BiCluster, labels []string, n int) {
+  for i := 0; i < n; i++ {
+    fmt.Print(" ")
   }
-  return 1.0-(num/den)
-}
-
-func sum_products(xs, ys []float64) float64 {
-  s := 0.0
-  for i := range xs {
-    s += xs[i]*ys[i]
+  if clust.Id < 0 {
+    fmt.Println("-")
+  } else {
+    fmt.Println(labels[clust.Id])
   }
-  return s
-}
-
-func sum_squares(xs []float64) float64 {
-  s := 0.0
-  for _, v := range xs {
-    s += square(v)
+  if clust.Left != nil {
+    printclust(clust.Left, labels, n+1)
   }
-  return s
-}
-
-func square(x float64) float64 {
-  return x*x
-}
-
-func sum(xs []float64) float64 {
-  s := 0.0
-  for _, v := range xs {
-    s += v
+  if clust.Right != nil {
+    printclust(clust.Right, labels, n+1)
   }
-  return s
+}
+
+func pearson (x, y stats.Float64Data) float64 {
+  c, _ := x.Correlation(y)
+  return 1.0 - c
+}
+
+func hcluster(rows []stats.Float64Data, distance func(stats.Float64Data, stats.Float64Data) float64) *BiCluster {
+  clust := make(map[int]*BiCluster)
+  for clusterid, vec := range rows {
+    clust[clusterid] = &BiCluster{Id: clusterid, Vec: vec}
+  }
+
+  n_elems := rows[0].Len()
+
+  dist := memoize.Memoize(func (i,j int) float64 {
+    return distance(clust[i].Vec, clust[j].Vec)
+  }).(func(i,j int) float64)
+
+  d := func(i,j int) float64 {
+    if i < j {
+      return dist(i, j)
+    }
+    return dist(j, i)
+  }
+
+  clusterid := 0
+  for len(clust) > 1 {
+    // Find the closest clusters
+    clusterids := make([]int, 0, len(clust))
+    for id := range(clust) {
+      clusterids = append(clusterids, id)
+    }
+    lx := clusterids[0]
+    ly := clusterids[1]
+    closest := d(lx, ly)
+    for i := 0; i < len(clusterids); i++ {
+      for j := i+1; j < len(clusterids); j++ {
+        this_d := d(clusterids[i], clusterids[j])
+        if this_d < closest {
+          closest = this_d
+          lx = clusterids[i]
+          ly = clusterids[j]
+        }
+      }
+    }
+    // Calculate the average of the closest clusters
+    vec := make([]float64, n_elems, n_elems)
+    for i := 0; i < n_elems; i++ {
+      vec[i] = (clust[lx].Vec.Get(i) + clust[ly].Vec.Get(i))/2.0
+    }
+    // Create new cluster as this average
+    clusterid--
+    newcluster := BiCluster{Id: clusterid, Vec: vec, Left: clust[lx], Right: clust[ly], Distance: closest}
+    clust[clusterid] = &newcluster
+    // Delete the clusters we merged
+    delete(clust, lx)
+    delete(clust, ly)
+  }
+
+  // There is only one cluster in the clust map
+  var result *BiCluster
+  for _, v := range clust {
+    result = v
+  }
+  return result
 }
 
 func ReadDataset(filename string) (*Dataset, error) {
@@ -91,9 +132,9 @@ func ReadDataset(filename string) (*Dataset, error) {
   return res, nil
 }
 
-func ParseRows(scanner *bufio.Scanner) ([]string, [][]float64, error) {
+func ParseRows(scanner *bufio.Scanner) ([]string, []stats.Float64Data, error) {
   var rownames []string
-  var data [][]float64
+  var data []stats.Float64Data
   for scanner.Scan() {
     xs := strings.Split(scanner.Text(), "\t")
     name := xs[0]
@@ -106,7 +147,7 @@ func ParseRows(scanner *bufio.Scanner) ([]string, [][]float64, error) {
       row = append(row, v)
     }
     rownames = append(rownames, name)
-    data = append(data, row)
+    data = append(data, stats.Float64Data(row))
   }
   return rownames, data, nil
 }
