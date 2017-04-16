@@ -1,24 +1,16 @@
 package main
 
 import (
-  "bufio"
   "fmt"
   "image/color"
   "math"
   "os"
-  "strconv"
-  "strings"
 
   "github.com/BenLubar/memoize"
   "github.com/fogleman/gg"
   "github.com/montanaflynn/stats"
+  "github.com/ray1729/collective_intel/dataset"
 )
-
-type Dataset struct {
-  Rownames []string
-  Colnames []string
-  Data     []stats.Float64Data
-}
 
 type BiCluster struct {
   Left, Right *BiCluster
@@ -30,24 +22,9 @@ type BiCluster struct {
 func main() {
   infile := os.Args[1]
   outfile := os.Args[2]
-  ds, _ := ReadDataset(infile)
+  ds, _ := dataset.ReadDataset(infile)
   clust := hcluster(ds.Data, pearson)
-  //printclust(clust, ds.Rownames, 0)
-  drawdendrogram(clust, ds.Rownames, outfile)
-}
-
-func transpose(ds *Dataset) *Dataset {
-  n_rows := len(ds.Rownames)
-  n_cols := len(ds.Colnames)
-  data := make([]stats.Float64Data, n_cols, n_cols)
-  for i := 0; i < n_cols; i++ {
-    row := make([]float64, n_rows, n_rows)
-    for j := 0; j < n_rows; j++ {
-      row[j] = ds.Data[j].Get(i)
-    }
-    data[i] = row
-  }
-  return &Dataset{ds.Colnames, ds.Rownames, data}
+  drawdendrogram(clust, ds.RowLabels, outfile)
 }
 
 func drawdendrogram(clust *BiCluster, labels []string, filename string) {
@@ -192,46 +169,4 @@ func hcluster(rows []stats.Float64Data, distance func(stats.Float64Data, stats.F
     result = v
   }
   return result
-}
-
-func ReadDataset(filename string) (*Dataset, error) {
-  file, err := os.Open(filename)
-  if err != nil {
-    return nil, err
-  }
-  defer file.Close()
-  scanner := bufio.NewScanner(file)
-  colnames := ParseHeader(scanner)
-  rownames, data, err := ParseRows(scanner)
-  if err != nil {
-    return nil, err
-  }
-  res := &Dataset{Colnames: colnames, Rownames: rownames, Data: data}
-  return res, nil
-}
-
-func ParseRows(scanner *bufio.Scanner) ([]string, []stats.Float64Data, error) {
-  var rownames []string
-  var data []stats.Float64Data
-  for scanner.Scan() {
-    xs := strings.Split(scanner.Text(), "\t")
-    name := xs[0]
-    var row []float64
-    for i := 1; i < len(xs); i++ {
-      v, err := strconv.ParseFloat(xs[i], 64)
-      if err != nil {
-        return nil, nil, fmt.Errorf("Error parsing %s row %d: %v", name, i, err)
-      }
-      row = append(row, v)
-    }
-    rownames = append(rownames, name)
-    data = append(data, stats.Float64Data(row))
-  }
-  return rownames, data, nil
-}
-
-func ParseHeader(scanner *bufio.Scanner) []string {
-  scanner.Scan()
-  xs := strings.Split(scanner.Text(), "\t")
-  return xs[1:]
 }
