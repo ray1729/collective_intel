@@ -3,12 +3,14 @@ package main
 import (
   "bufio"
   "fmt"
-  //"math"
+  "image/color"
+  "math"
   "os"
   "strconv"
   "strings"
 
   "github.com/BenLubar/memoize"
+  "github.com/fogleman/gg"
   "github.com/montanaflynn/stats"
 )
 
@@ -26,10 +28,87 @@ type BiCluster struct {
 }
 
 func main() {
-  filename := os.Args[1]
-  ds, _ := ReadDataset(filename)
+  infile := os.Args[1]
+  outfile := os.Args[2]
+  ds, _ := ReadDataset(infile)
   clust := hcluster(ds.Data, pearson)
-  printclust(clust, ds.Rownames, 0)
+  //printclust(clust, ds.Rownames, 0)
+  drawdendrogram(clust, ds.Rownames, outfile)
+}
+
+func transpose(ds *Dataset) *Dataset {
+  n_rows := len(ds.Rownames)
+  n_cols := len(ds.Colnames)
+  data := make([]stats.Float64Data, n_cols, n_cols)
+  for i := 0; i < n_cols; i++ {
+    row := make([]float64, n_rows, n_rows)
+    for j := 0; j < n_rows; j++ {
+      row[j] = ds.Data[j].Get(i)
+    }
+    data[i] = row
+  }
+  return &Dataset{ds.Colnames, ds.Rownames, data}
+}
+
+func drawdendrogram(clust *BiCluster, labels []string, filename string) {
+  h := getheight(clust)*20.0
+  w := 1500.0
+  depth := getdepth(clust)
+  // Width is fixed, so scale to fit
+  sf := (w-250.0)/depth
+  dc := gg.NewContext(int(w), int(h))
+  dc.SetColor(color.White)
+  dc.DrawRectangle(0.0, 0.0, w, h)
+  dc.Fill()
+  dc.SetColor(color.Black)
+  dc.SetLineWidth(1.0)
+  dc.DrawLine(0, h/2, 10.0, h/2)
+  dc.Stroke()
+  drawnode(dc, clust, 10.0, h/2, sf, labels)
+  dc.SavePNG(filename)
+}
+
+func drawnode(dc *gg.Context, clust *BiCluster, x float64, y float64, sf float64, labels []string) {
+  if clust.Id < 0 {
+    h1 := getheight(clust.Left)*20.0
+    h2 := getheight(clust.Right)*20.0
+    top := y - (h1+h2)/2.0
+    bottom := y + (h1+h2)/2.0
+    ll := clust.Distance*sf
+    // Vertical line from this cluster to children
+    dc.DrawLine(x, top+h1/2.0, x, bottom-h2/2.0)
+    // Horizontal line to left item
+    dc.DrawLine(x, top+h1/2.0, x+ll, top+h1/2.0)
+    // Horizontal line to right item
+    dc.DrawLine(x, bottom-h2/2.0, x+ll, bottom-h2/2.0)
+    dc.Stroke()
+    // Left and right nodes
+    drawnode(dc, clust.Left, x+ll, top+h1/2.0, sf, labels)
+    drawnode(dc, clust.Right, x+ll, bottom-h2/2.0, sf, labels)
+  } else {
+    // Leaf node, render the label
+    dc.DrawString(labels[clust.Id], x+5.0, y+2.0)
+  }
+}
+
+func getheight(clust *BiCluster) float64 {
+  // If this is a leaf node, the height is 1
+  if clust.Left == nil && clust.Right == nil {
+    return 1.0
+  }
+  // Otherwise the height is the sum of the heights
+  // of the two branches
+  return getheight(clust.Left) + getheight(clust.Right)
+}
+
+func getdepth(clust *BiCluster) float64 {
+  // The depth of a leaf node is 0
+  if clust.Left == nil && clust.Right == nil {
+    return 0.0
+  }
+  // The depth of a branch is the greater of its two
+  // sides plus its own distance
+  return math.Max(getdepth(clust.Left), getdepth(clust.Right)) + clust.Distance
 }
 
 func printclust(clust *BiCluster, labels []string, n int) {
