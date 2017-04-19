@@ -11,32 +11,29 @@ import (
 )
 
 type Dataset struct {
-  RowLabels []string
-  ColLabels []string
-  Data      []stats.Float64Data
+  RowLabels, ColLabels []string
+  NRows, NCols int
+  Data []stats.Float64Data
 }
 
 func NewDataset(rownames, colnames []string, data []stats.Float64Data) (*Dataset, error) {
-  var n int
+  var nrows, ncols int
+  nrows = len(data)
+  if rownames != nil && len(rownames) != nrows {
+    return nil, fmt.Errorf("Error constructing dataset: %d row labels for %d rows", len(rownames), nrows)
+  }
   if colnames != nil {
-    n = len(colnames)
+    ncols = len(colnames)
   } else {
-    n = len(data[0])
+    ncols = len(data[0])
   }
   for i, row := range data {
-    if len(row) != n {
+    if len(row) != ncols {
       return nil, fmt.Errorf("Error constructing dataset: row %d has unexpected length", i)
     }
   }
-  return &Dataset{rownames, colnames, data}, nil
-}
 
-func (ds *Dataset) NRows() int {
-  return len(ds.Data)
-}
-
-func (ds *Dataset) NCols() int {
-  return len(ds.Data[0])
+  return &Dataset{RowLabels: rownames, ColLabels: colnames, NRows: nrows, NCols: ncols, Data: data}, nil
 }
 
 func (ds *Dataset) Get(row, col int) float64 {
@@ -48,37 +45,19 @@ func (ds *Dataset) Row(row int) stats.Float64Data {
 }
 
 func (ds *Dataset) Col(col int) stats.Float64Data {
-  res := make([]float64, 0, len(ds.Data))
-  for row := 0; row < len(ds.Data); row++ {
+  res := make([]float64, 0, ds.NRows)
+  for row := 0; row < ds.NRows; row++ {
     res = append(res, ds.Data[row][col])
   }
   return res
 }
 
 func (ds *Dataset) Transpose() *Dataset {
-  data := make([]stats.Float64Data, 0, len(ds.ColLabels))
-  for col := 0; col < len(ds.ColLabels); col++ {
+  data := make([]stats.Float64Data, 0, ds.NCols)
+  for col := 0; col < ds.NCols; col++ {
     data = append(data, ds.Col(col))
   }
-  return &Dataset{ds.ColLabels, ds.RowLabels, data}
-}
-
-func (ds *Dataset) MapRows(f func (stats.Float64Data) float64) stats.Float64Data {
-  nr := ds.NRows()
-  res := make([]float64, 0, nr)
-  for i := 0; i < nr; i++ {
-    res = append(res, f(ds.Row(i)))
-  }
-  return res
-}
-
-func (ds *Dataset) MapCols(f func (stats.Float64Data) float64) stats.Float64Data {
-  nc := ds.NCols()
-  res := make([]float64, 0, nc)
-  for i := 0; i < nc; i++ {
-    res = append(res, f(ds.Col(i)))
-  }
-  return res
+  return &Dataset{RowLabels: ds.ColLabels, ColLabels: ds.RowLabels, NRows: ds.NCols, NCols: ds.NRows, Data: data}
 }
 
 func ReadDataset(filename string) (*Dataset, error) {
